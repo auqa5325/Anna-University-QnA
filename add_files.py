@@ -5,6 +5,10 @@ from langchain_aws.embeddings import BedrockEmbeddings
 from opensearchpy import RequestsHttpConnection
 from requests_aws4auth import AWS4Auth
 import boto3
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 # Define AWS Auth for OpenSearch (Make sure boto3 has correct credentials configured)
 region = "ap-south-1"

@@ -4,6 +4,9 @@ from src.random_logic import generate_random_topics
 from src.classify_topic import classify_topics_to_question_types
 from src.create_questions import generate_questions_from_topics
 import json
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Streamlit app configuration
 st.set_page_config(page_title="Syllabus Question Generator", layout="wide")

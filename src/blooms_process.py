@@ -31,7 +31,7 @@ def process_syllabus_to_topics(s3_file_path: str) -> dict:
 
     try:
         # Initialize PDF loader
-        loader = AmazonTextractPDFLoader(file_path=s3_file_path)
+        loader = AmazonTextractPDFLoader(file_path=s3_file_path,region_name="ap-south-1")
         
         # Load and extract text
         documents = loader.load()

@@ -1,16 +1,46 @@
-from opensearchpy import OpenSearch, RequestsHttpConnection
-from requests_aws4auth import AWS4Auth
 import boto3
+import json
+from requests_aws4auth import AWS4Auth
+from opensearchpy import OpenSearch, RequestsHttpConnection
 from langchain_community.vectorstores import OpenSearchVectorSearch
 from langchain_aws.embeddings import BedrockEmbeddings
 from langchain_aws import ChatBedrock
 from langchain.prompts import PromptTemplate
 from langchain_core.runnables import RunnableSequence
-import json
+
+# --- CONFIGURATION ---
+# The new, active OpenSearch domain endpoint.
+OPENSEARCH_URL = "https://search-test1-annauniv-pcx3f52wxykhpd4md6v4bjeqdy.ap-south-1.es.amazonaws.com"
+# The name of the index you created.
+INDEX_NAME = "test-annauniv"
+# The AWS region where your resources are located.
+REGION = 'ap-south-1'
+# The service name for signing requests.
+SERVICE = 'es'
+
+# --- AUTHENTICATION SETUP ---
+print("Attempting to load AWS credentials from environment...")
+try:
+    session = boto3.Session()
+    credentials = session.get_credentials()
+    if not credentials:
+        raise ValueError("AWS credentials not found. Please configure your AWS CLI or environment variables.")
+    
+    awsauth = AWS4Auth(
+        credentials.access_key,
+        credentials.secret_key,
+        REGION,
+        SERVICE,
+        session_token=credentials.token
+    )
+    print("Successfully loaded AWS credentials.")
+except Exception as e:
+    print(f"Authentication Error: {e}")
+    exit()
 
 def generate_questions_from_topics(topics_json: str) -> list:
     """
-    Retrieve relevant documents and generate questions for each topic based on its weightage.
+    Retrieve relevant documents and generate questions for each topic.
 
     Args:
         topics_json (str): JSON string containing topics and their question types
@@ -18,10 +48,6 @@ def generate_questions_from_topics(topics_json: str) -> list:
 
     Returns:
         list: List of generated questions, one per topic
-
-    Raises:
-        ValueError: If topics_json is invalid
-        Exception: If document retrieval or question generation fails
     """
     # Parse topics JSON
     try:
@@ -31,27 +57,24 @@ def generate_questions_from_topics(topics_json: str) -> list:
     except json.JSONDecodeError:
         raise ValueError("Invalid JSON format for topics")
 
-    # AWS credentials and region
-    region = 'ap-south-1'
-    service = 'es'
-    credentials = boto3.Session().get_credentials()
-    awsauth = AWS4Auth(credentials.access_key, credentials.secret_key, region, service, session_token=credentials.token)
-
-    # OpenSearch domain endpoint
-    host = 'search-anna-univ-ivzhdnmtdsvf2wvtbmzsmfrmym.ap-south-1.es.amazonaws.com'
-
     # Initialize OpenSearch vector store
-    vector_store = OpenSearchVectorSearch(
-        opensearch_url=f"https://{host}",
-        index_name="test-annauniv",
-        embedding_function=BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0"),
-        http_auth=awsauth,
-        use_ssl=True,
-        verify_certs=True,
-        connection_class=RequestsHttpConnection
-    )
+    try:
+        vector_store = OpenSearchVectorSearch(
+            opensearch_url=OPENSEARCH_URL,
+            index_name=INDEX_NAME,
+            embedding_function=BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0"),
+            http_auth=awsauth,
+            use_ssl=True,
+            verify_certs=True,
+            connection_class=RequestsHttpConnection
+        )
+        print("OpenSearch vector store initialized successfully.")
+    except Exception as e:
+        print(f"Error initializing OpenSearch client: {e}")
+        return [f"Fatal Error: Could not connect to OpenSearch. Reason: {str(e)}"]
 
     # Initialize LLM
+    print("Initializing Bedrock LLM...")
     llm = ChatBedrock(
         model_id="meta.llama3-70b-instruct-v1:0",
         model_kwargs={"temperature": 0, "max_gen_len": 1024}
@@ -59,8 +82,8 @@ def generate_questions_from_topics(topics_json: str) -> list:
 
     # Define prompt template
     prompt_template = PromptTemplate(
-    input_variables=["query", "document"],
-    template="""
+        input_variables=["query", "document"],
+        template="""
 You are a precise academic question generator. Only return questions in the specified format with no extra text. Follow these instructions exactly:
 
 Input:
@@ -88,7 +111,7 @@ Instructions:
 7. Ensure the question is clear, unique, and suitable for an academic paper.
 8. Output ONLY the question (with options for MCQ). No explanations, labels, or extra text.
 """
-)
+    )
 
     # Create runnable sequence
     chain = RunnableSequence(prompt_template | llm)
@@ -108,9 +131,9 @@ Instructions:
             # Retrieve relevant documents
             results = vector_store.max_marginal_relevance_search(
                 query=query,
-                k=5,           # Number of documents to return
-                fetch_k=20,    # Number of documents to fetch before applying MMR
-                lambda_mult=0.5  # Balance between relevance and diversity
+                k=5,            # Number of documents to return
+                fetch_k=20,     # Number of documents to fetch before applying MMR
+                lambda_mult=0.5 # Balance between relevance and diversity
             )
 
             # Combine documents into a single string
@@ -128,3 +151,32 @@ Instructions:
             questions.append(f"Error generating question for {topic}: {str(e)}")
 
     return questions
+
+# --- SCRIPT EXECUTION EXAMPLE ---
+if __name__ == "__main__":
+    # Example JSON input for the function.
+    # You can modify this to test different topics and question types.
+    test_topics_json = """
+    [
+      {
+        "topic": "Software Engineering, Software development process, waterfall model, Spiral model", 
+        "question_type": "Long Answer"
+      },
+      {
+        "topic": "Agile software development, SCRUM, XP",
+        "question_type": "Short Answer"
+      },
+      {
+        "topic": "Quality assurance, quality control",
+        "question_type": "MCQ"
+      }
+    ]
+    """
+
+    print("Generating questions based on the provided topics...")
+    generated_questions = generate_questions_from_topics(test_topics_json)
+    
+    print("\n--- Generated Questions ---")
+    for i, q in enumerate(generated_questions, 1):
+        print(f"Question {i}: {q}")
+        print("-" * 50)

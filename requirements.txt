@@ -5,4 +5,5 @@ boto3
 opensearch-py
 requests-aws4auth
 streamlit
+amazon-textract-textractor
 amazon-textract-caller
